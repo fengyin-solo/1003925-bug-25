@@ -17,7 +17,6 @@
         <strong class="stat-value">{{ item.value }}</strong>
       </article>
     </div>
-
     <p class="status-legend">
       <span v-for="item in statusSummary" :key="item.status" class="legend-item">
         {{ item.status }}：{{ item.count }}
@@ -37,6 +36,7 @@
       <thead>
         <tr>
           <th v-for="column in columns" :key="column">{{ column }}</th>
+          <th>来源雨量记录</th>
           <th>当前状态</th>
           <th>可执行动作</th>
         </tr>
@@ -44,6 +44,17 @@
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td>
+            <button
+              v-if="row['来源记录编号']"
+              class="link"
+              type="button"
+              @click="openSource(row)"
+            >
+              {{ row['来源记录编号'] }}
+            </button>
+            <span v-else>人工登记</span>
+          </td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
             <button
@@ -58,7 +69,7 @@
           </td>
         </tr>
         <tr v-if="!rows.length">
-          <td :colspan="columns.length + 2" class="empty-state">暂无预警发布数据，可先登记预警通知</td>
+          <td :colspan="columns.length + 3" class="empty-state">暂无预警发布数据，可先登记预警通知</td>
         </tr>
       </tbody>
     </table>
@@ -72,6 +83,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import {
   downloadEntries,
@@ -79,13 +91,15 @@ import {
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import { RAIN_KEY } from '@/domain/rain'
+import { listRows } from '@/data/local-store'
 import type { EntryRow } from '@/data/types'
 
+const router = useRouter()
 const meta = moduleMeta('alarm')
 const columns = ["通知编号", "隐患点编号", "预警等级", "触发条件", "发布时间", "接收单位", "发布人", "通知状态"]
 const actions = ["确认发布", "登记响应", "解除预警"]
 const statuses = ["待发布", "已发布", "已响应", "已解除", "误报"]
-const stats = [{"label": "本月预警数", "value": 0}, {"label": "已响应数", "value": 0}, {"label": "未解除数", "value": 0}]
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
@@ -99,6 +113,24 @@ const statusSummary = computed(() =>
   })),
 )
 
+// 工作台统计实时来自最新通知清单：雨量复核/判异常后回到此页立刻反映最新状态。
+const stats = computed(() => {
+  const totalCount = rows.value.length
+  const responded = rows.value.filter((row) =>
+    ['已响应', '已解除'].includes(String(row.status)),
+  ).length
+  const unresolved = rows.value.filter((row) =>
+    ['待发布', '已发布', '已响应'].includes(String(row.status)),
+  ).length
+  const fromRain = rows.value.filter((row) => String(row['来源模块'] ?? '') === RAIN_KEY).length
+  return [
+    { label: '通知总数', value: totalCount },
+    { label: '已响应/解除', value: responded },
+    { label: '未解除', value: unresolved },
+    { label: '雨量自动触发', value: fromRain },
+  ]
+})
+
 function resetFilters() {
   filters.value = {}
   reload()
@@ -110,6 +142,17 @@ function exportRows() {
 
 function openCreate() {
   errorMessage.value = '预警通知登记入口尚未接入审批流'
+}
+
+function openSource(row: EntryRow) {
+  if (String(row['来源模块'] ?? '') !== RAIN_KEY) {
+    return
+  }
+  const code = String(row['来源记录编号'] ?? '')
+  const source = listRows(RAIN_KEY).find((item) => String(item['记录编号']) === code)
+  if (source) {
+    router.push({ name: 'rain_detail', params: { id: String(source.id) } })
+  }
 }
 
 function runAction(action: string, row: EntryRow) {

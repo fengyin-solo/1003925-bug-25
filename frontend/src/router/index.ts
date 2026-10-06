@@ -6,6 +6,7 @@ const Deformation = () => import('@/views/deformation/index.vue')
 const Crack = () => import('@/views/crack/index.vue')
 const Tilt = () => import('@/views/tilt/index.vue')
 const RainGauge = () => import('@/views/rain_gauge/index.vue')
+const RainDetail = () => import('@/views/rain_gauge/detail.vue')
 const Threshold = () => import('@/views/threshold/index.vue')
 const Alarm = () => import('@/views/alarm/index.vue')
 const Evacuation = () => import('@/views/evacuation/index.vue')
@@ -29,6 +30,7 @@ const router = createRouter({
     { path: '/crack', name: 'crack', component: Crack },
     { path: '/tilt', name: 'tilt', component: Tilt },
     { path: '/rain_gauge', name: 'rain_gauge', component: RainGauge },
+    { path: '/rain_gauge/:id', name: 'rain_detail', component: RainDetail },
     { path: '/threshold', name: 'threshold', component: Threshold },
     { path: '/alarm', name: 'alarm', component: Alarm },
     { path: '/evacuation', name: 'evacuation', component: Evacuation },
