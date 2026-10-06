@@ -65,13 +65,14 @@
 
     <footer class="page-foot">
       <span>共 {{ total }} 条预警发布记录</span>
+      <span v-if="noticeMessage" class="notice-text">{{ noticeMessage }}</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import {
   downloadEntries,
@@ -79,19 +80,36 @@ import {
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import { subscribe } from '@/data/local-store'
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('alarm')
 const columns = ["通知编号", "隐患点编号", "预警等级", "触发条件", "发布时间", "接收单位", "发布人", "通知状态"]
 const actions = ["确认发布", "登记响应", "解除预警"]
 const statuses = ["待发布", "已发布", "已响应", "已解除", "误报"]
-const stats = [{"label": "本月预警数", "value": 0}, {"label": "已响应数", "value": 0}, {"label": "未解除数", "value": 0}]
 
 const rows = ref<EntryRow[]>([])
+// 未加筛选条件的全量通知清单，统计卡以它为准。
+const ledger = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
+const noticeMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+
+const stats = computed(() => {
+  const now = new Date()
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const monthCount = ledger.value.filter((row) => String(row['发布时间'] ?? '').startsWith(month)).length
+  const responded = ledger.value.filter((row) => String(row.status) === '已响应').length
+  const open = ledger.value.filter((row) => !['已解除', '误报'].includes(String(row.status))).length
+  return [
+    { label: '本月预警数', value: String(monthCount) },
+    { label: '已响应数', value: String(responded) },
+    { label: '未解除数', value: String(open) },
+  ]
+})
+
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
@@ -114,12 +132,14 @@ function openCreate() {
 
 function runAction(action: string, row: EntryRow) {
   errorMessage.value = ''
+  noticeMessage.value = ''
   const result = applyAction(meta.key, Number(row.id), action)
+  reload()
   if (!result.ok) {
     errorMessage.value = result.message
     return
   }
-  reload()
+  noticeMessage.value = result.message
 }
 
 function reload() {
@@ -128,10 +148,21 @@ function reload() {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    ledger.value = listEntries(meta.key).items
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '预警发布列表读取失败'
   }
 }
 
-onMounted(reload)
+let unsubscribe: (() => void) | null = null
+
+onMounted(() => {
+  reload()
+  // 雨量链路生成或撤销通知时会落账，工作台订阅后同步刷新，不用重新进页面。
+  unsubscribe = subscribe(() => reload())
+})
+
+onBeforeUnmount(() => {
+  unsubscribe?.()
+})
 </script>

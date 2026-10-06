@@ -29,6 +29,30 @@ function readStorage(): Record<string, EntryRow[]> {
 
 let cache: Record<string, EntryRow[]> | null = null
 
+// 数据变化订阅：预警发布工作台等页面挂上去，任何模块落账后立刻刷新，不用等重新进页面。
+type StoreListener = (key: string) => void
+const listeners = new Set<StoreListener>()
+
+export function subscribe(listener: StoreListener): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function notify(key: string): void {
+  for (const listener of listeners) {
+    listener(key)
+  }
+}
+
+function persist(rows: Record<string, EntryRow[]>): void {
+  cache = rows
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rows))
+  }
+}
+
 export function allRows(): Record<string, EntryRow[]> {
   if (cache === null) {
     cache = readStorage()
@@ -41,10 +65,20 @@ export function listRows(key: string): EntryRow[] {
 }
 
 export function saveRows(key: string, rows: EntryRow[]): void {
-  const next = { ...allRows(), [key]: rows }
-  cache = next
-  if (typeof window !== 'undefined' && window.localStorage) {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  persist({ ...allRows(), [key]: rows })
+  notify(key)
+}
+
+// 事务：先给全部账册拍快照，mutate 里任何一步写失败都把缓存和 localStorage 一起回滚，
+// 保证雨量结论、通知清单、异常标记要么同时生效，要么全部撤销。
+export function runInTransaction<T>(mutate: () => T): T {
+  const snapshot = clone(allRows())
+  try {
+    return mutate()
+  } catch (error) {
+    persist(snapshot)
+    notify('')
+    throw error
   }
 }
 
